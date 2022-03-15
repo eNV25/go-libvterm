@@ -48,10 +48,6 @@ VTerm *vterm_new_with_allocator(int rows, int cols, VTermAllocatorFunctions *fun
   vt->parser.callbacks = NULL;
   vt->parser.cbdata    = NULL;
 
-  vt->parser.strbuffer_len = 64;
-  vt->parser.strbuffer_cur = 0;
-  vt->parser.strbuffer = vterm_allocator_malloc(vt, vt->parser.strbuffer_len);
-
   vt->outfunc = NULL;
   vt->outdata = NULL;
 
@@ -73,8 +69,8 @@ void vterm_free(VTerm *vt)
   if(vt->state)
     vterm_state_free(vt->state);
 
-  vterm_allocator_free(vt, vt->parser.strbuffer);
   vterm_allocator_free(vt, vt->outbuffer);
+  vterm_allocator_free(vt, vt->tmpbuffer);
 
   vterm_allocator_free(vt, vt);
 }
@@ -178,15 +174,21 @@ INTERNAL void vterm_push_output_sprintf_ctrl(VTerm *vt, unsigned char ctrl, cons
   vterm_push_output_bytes(vt, vt->tmpbuffer, cur);
 }
 
-INTERNAL void vterm_push_output_sprintf_dcs(VTerm *vt, const char *fmt, ...)
+INTERNAL void vterm_push_output_sprintf_str(VTerm *vt, unsigned char ctrl, bool term, const char *fmt, ...)
 {
   size_t cur = 0;
 
-  cur += snprintf(vt->tmpbuffer + cur, vt->tmpbuffer_len - cur,
-      vt->mode.ctrl8bit ? "\x90" : ESC_S "P"); // DCS
+  if(ctrl) {
+    if(ctrl >= 0x80 && !vt->mode.ctrl8bit)
+      cur = snprintf(vt->tmpbuffer, vt->tmpbuffer_len,
+          ESC_S "%c", ctrl - 0x40);
+    else
+      cur = snprintf(vt->tmpbuffer, vt->tmpbuffer_len,
+          "%c", ctrl);
 
-  if(cur >= vt->tmpbuffer_len)
-    return;
+    if(cur >= vt->tmpbuffer_len)
+      return;
+  }
 
   va_list args;
   va_start(args, fmt);
@@ -197,11 +199,13 @@ INTERNAL void vterm_push_output_sprintf_dcs(VTerm *vt, const char *fmt, ...)
   if(cur >= vt->tmpbuffer_len)
     return;
 
-  cur += snprintf(vt->tmpbuffer + cur, vt->tmpbuffer_len - cur,
-      vt->mode.ctrl8bit ? "\x9C" : ESC_S "\\"); // ST
+  if(term) {
+    cur += snprintf(vt->tmpbuffer + cur, vt->tmpbuffer_len - cur,
+        vt->mode.ctrl8bit ? "\x9C" : ESC_S "\\"); // ST
 
-  if(cur >= vt->tmpbuffer_len)
-    return;
+    if(cur >= vt->tmpbuffer_len)
+      return;
+  }
 
   vterm_push_output_bytes(vt, vt->tmpbuffer, cur);
 }
@@ -244,6 +248,7 @@ VTermValueType vterm_get_attr_type(VTermAttr attr)
     case VTERM_ATTR_ITALIC:     return VTERM_VALUETYPE_BOOL;
     case VTERM_ATTR_BLINK:      return VTERM_VALUETYPE_BOOL;
     case VTERM_ATTR_REVERSE:    return VTERM_VALUETYPE_BOOL;
+    case VTERM_ATTR_CONCEAL:    return VTERM_VALUETYPE_BOOL;
     case VTERM_ATTR_STRIKE:     return VTERM_VALUETYPE_BOOL;
     case VTERM_ATTR_FONT:       return VTERM_VALUETYPE_INT;
     case VTERM_ATTR_FOREGROUND: return VTERM_VALUETYPE_COLOR;
@@ -379,4 +384,21 @@ void vterm_copy_cells(VTermRect dest,
       VTermPos srcpos = { pos.row + downward, pos.col + rightward };
       (*copycell)(pos, srcpos, user);
     }
+}
+
+void vterm_check_version(int major, int minor)
+{
+  if(major != VTERM_VERSION_MAJOR) {
+    fprintf(stderr, "libvterm major version mismatch; %d (wants) != %d (library)\n",
+        major, VTERM_VERSION_MAJOR);
+    exit(1);
+  }
+
+  if(minor > VTERM_VERSION_MINOR) {
+    fprintf(stderr, "libvterm minor version mismatch; %d (wants) > %d (library)\n",
+        minor, VTERM_VERSION_MINOR);
+    exit(1);
+  }
+
+  // Happy
 }

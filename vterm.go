@@ -1,9 +1,7 @@
 package vterm
 
 /*
-#cgo CFLAGS: -std=c11 -I"${SRCDIR}/libvterm/include/"
 #include <vterm.h>
-#include <stdio.h>
 
 inline static int _attr_bold(VTermScreenCell *cell) { return cell->attrs.bold; }
 inline static int _attr_underline(VTermScreenCell *cell) { return cell->attrs.underline; }
@@ -23,19 +21,19 @@ int _go_handle_moverect(VTermRect, VTermRect, void*);
 int _go_handle_movecursor(VTermPos, VTermPos, int, void*);
 
 static VTermScreenCallbacks _screen_callbacks = {
-  _go_handle_damage,
-  _go_handle_moverect,
-  _go_handle_movecursor,
-  _go_handle_set_term_prop,
-  _go_handle_bell,
-  _go_handle_resize,
-  NULL,
-  NULL
+	_go_handle_damage,
+	_go_handle_moverect,
+	_go_handle_movecursor,
+	_go_handle_set_term_prop,
+	_go_handle_bell,
+	_go_handle_resize,
+	NULL,
+	NULL
 };
 
 static void
-_vterm_screen_set_callbacks(VTermScreen *screen, void *user) {
-  vterm_screen_set_callbacks(screen, &_screen_callbacks, user);
+_vterm_screen_set_callbacks(VTermScreen *screen, uintptr_t user) {
+	vterm_screen_set_callbacks(screen, &_screen_callbacks, (void *)user);
 }
 
 static bool _vterm_value_get_boolean(VTermValue *val) {
@@ -46,9 +44,8 @@ static int _vterm_value_get_number(VTermValue *val) {
 	return val->number;
 }
 
-static char *_vterm_value_get_string(VTermValue *val) {
-	printf("get_string: %s", val->string);
-	return val->string;
+static const char *_vterm_value_get_string(VTermValue *val) {
+	return val->string.str;
 }
 
 typedef struct {
@@ -58,11 +55,11 @@ typedef struct {
 
 */
 import "C"
+
 import (
 	"errors"
+	"runtime/cgo"
 	"unsafe"
-
-	"github.com/mattn/go-pointer"
 )
 
 type Attr int
@@ -159,7 +156,6 @@ type Rect struct {
 
 func (rect *Rect) StartRow() int {
 	return int(rect.rect.start_row)
-
 }
 
 func (rect *Rect) EndRow() int {
@@ -190,13 +186,13 @@ type ScreenCell struct {
 type ParserCallbacks struct {
 	Text func([]byte, interface{}) int
 	/*
-	  int (*control)(unsigned char control, void *user);
-	  int (*control)(unsigned char control, void *user);
-	  int (*escape)(const char *bytes, size_t len, void *user);
-	  int (*csi)(const char *leader, const long args[], int argcount, const char *intermed, char command, void *user);
-	  int (*osc)(const char *command, size_t cmdlen, void *user);
-	  int (*dcs)(const char *command, size_t cmdlen, void *user);
-	  int (*resize)(int rows, int cols, void *user);
+		int (*control)(unsigned char control, void *user);
+		int (*control)(unsigned char control, void *user);
+		int (*escape)(const char *bytes, size_t len, void *user);
+		int (*csi)(const char *leader, const long args[], int argcount, const char *intermed, char command, void *user);
+		int (*osc)(const char *command, size_t cmdlen, void *user);
+		int (*dcs)(const char *command, size_t cmdlen, void *user);
+		int (*resize)(int rows, int cols, void *user);
 	*/
 }
 
@@ -213,19 +209,19 @@ func (c *VTermColor) _to_rgb_color() *C.rgb_color {
 }
 
 const (
-	VTERM_COLOR_RGB uint8 = 0x00
-	VTERM_COLOR_INDEXED uint8 = 0x01
-	VTERM_COLOR_TYPE_MASK uint8 = 0x01
+	VTERM_COLOR_RGB        uint8 = 0x00
+	VTERM_COLOR_INDEXED    uint8 = 0x01
+	VTERM_COLOR_TYPE_MASK  uint8 = 0x01
 	VTERM_COLOR_DEFAULT_FG uint8 = 0x02
 	VTERM_COLOR_DEFAULT_BG uint8 = 0x04
 )
 
 func (c *VTermColor) IsIndexed() bool {
-	return (c.GetType()&VTERM_COLOR_TYPE_MASK) == VTERM_COLOR_INDEXED
+	return (c.GetType() & VTERM_COLOR_TYPE_MASK) == VTERM_COLOR_INDEXED
 }
 
 func (c *VTermColor) IsRgb() bool {
-	return (c.GetType()&VTERM_COLOR_TYPE_MASK) == VTERM_COLOR_RGB
+	return (c.GetType() & VTERM_COLOR_TYPE_MASK) == VTERM_COLOR_RGB
 }
 
 func (c *VTermColor) IsDefaultFg() bool {
@@ -305,7 +301,7 @@ func New(rows, cols int) *VTerm {
 			screen: C.vterm_obtain_screen(term),
 		},
 	}
-	C._vterm_screen_set_callbacks(C.vterm_obtain_screen(term), pointer.Save(vt))
+	C._vterm_screen_set_callbacks(C.vterm_obtain_screen(term), C.uintptr_t(cgo.NewHandle(vt)))
 	return vt
 }
 
@@ -404,8 +400,8 @@ type Screen struct {
 	OnBell        func() int
 	OnSetTermProp func(int, *VTermValue) int
 	/*
-	  int (*sb_pushline)(int cols, const VTermScreenCell *cells, void *user);
-	  int (*sb_popline)(int cols, VTermScreenCell *cells, void *user);
+		int (*sb_pushline)(int cols, const VTermScreenCell *cells, void *user);
+		int (*sb_popline)(int cols, VTermScreenCell *cells, void *user);
 	*/
 }
 
@@ -500,7 +496,7 @@ func (s *State) GetPaletteColor(index int) VTermColor {
 
 //export _go_handle_damage
 func _go_handle_damage(rect C.VTermRect, user unsafe.Pointer) C.int {
-	onDamage := pointer.Restore(user).(*VTerm).ObtainScreen().OnDamage
+	onDamage := cgo.Handle(user).Value().(*VTerm).ObtainScreen().OnDamage
 	if onDamage != nil {
 		return C.int(onDamage(&Rect{rect: rect}))
 	}
@@ -509,7 +505,7 @@ func _go_handle_damage(rect C.VTermRect, user unsafe.Pointer) C.int {
 
 //export _go_handle_bell
 func _go_handle_bell(user unsafe.Pointer) C.int {
-	onBell := pointer.Restore(user).(*VTerm).ObtainScreen().OnBell
+	onBell := cgo.Handle(user).Value().(*VTerm).ObtainScreen().OnBell
 	if onBell != nil {
 		return C.int(onBell())
 	}
@@ -524,10 +520,8 @@ const (
 )
 
 //export _go_handle_set_term_prop
-func _go_handle_set_term_prop(prop C.VTermProp, val *C.VTermValue,
-	user unsafe.Pointer) C.int {
-
-	onSetTermProp := pointer.Restore(user).(*VTerm).ObtainScreen().OnSetTermProp
+func _go_handle_set_term_prop(prop C.VTermProp, val *C.VTermValue, user unsafe.Pointer) C.int {
+	onSetTermProp := cgo.Handle(user).Value().(*VTerm).ObtainScreen().OnSetTermProp
 
 	if onSetTermProp != nil {
 		value := VTermValue{}
@@ -552,7 +546,7 @@ func _go_handle_set_term_prop(prop C.VTermProp, val *C.VTermValue,
 
 //export _go_handle_resize
 func _go_handle_resize(row, col C.int, user unsafe.Pointer) C.int {
-	onResize := pointer.Restore(user).(*VTerm).ObtainScreen().OnResize
+	onResize := cgo.Handle(user).Value().(*VTerm).ObtainScreen().OnResize
 	if onResize != nil {
 		return C.int(onResize(int(row), int(col)))
 	}
@@ -561,7 +555,7 @@ func _go_handle_resize(row, col C.int, user unsafe.Pointer) C.int {
 
 //export _go_handle_moverect
 func _go_handle_moverect(dest, src C.VTermRect, user unsafe.Pointer) C.int {
-	onMoveRect := pointer.Restore(user).(*VTerm).ObtainScreen().OnMoveRect
+	onMoveRect := cgo.Handle(user).Value().(*VTerm).ObtainScreen().OnMoveRect
 	if onMoveRect != nil {
 		return C.int(onMoveRect(&Rect{rect: dest}, &Rect{rect: src}))
 	}
@@ -570,7 +564,7 @@ func _go_handle_moverect(dest, src C.VTermRect, user unsafe.Pointer) C.int {
 
 //export _go_handle_movecursor
 func _go_handle_movecursor(pos, oldpos C.VTermPos, visible C.int, user unsafe.Pointer) C.int {
-	onMoveCursor := pointer.Restore(user).(*VTerm).ObtainScreen().OnMoveCursor
+	onMoveCursor := cgo.Handle(user).Value().(*VTerm).ObtainScreen().OnMoveCursor
 	if onMoveCursor != nil {
 		var b bool
 		if visible != C.int(0) {

@@ -1,3 +1,0 @@
-[submodule "libvterm"]
-	path = libvterm
-	url = git@github.com:neovim/libvterm.git

@@ -204,8 +204,8 @@ static void decode_table(VTermEncoding *enc, void *data,
   }
 }
 
-#include "encoding/DECdrawing.inc"
-#include "encoding/uk.inc"
+#include "DECdrawing.inc"
+#include "uk.inc"
 
 static struct {
   VTermEncodingType type;
